@@ -30,6 +30,16 @@ let isNfcScanning = false;
 let nfcReaderInstance = null;
 let selectedLoginKey = 'Ivan19';
 let currentLibraryFilter = 'my'; // 'my' | 'shared' | 'all'
+let storageSoftcapGB = parseFloat(localStorage.getItem('tonie_storage_softcap_gb')) || 25.0;
+let storageStats = {
+  totalUsedBytes: 0,
+  maxBytes: 25 * 1024 * 1024 * 1024,
+  percentUsed: 0,
+  isWarning: false,
+  isCritical: false,
+  fileDetails: []
+};
+let isStorageFilesExpanded = false;
 
 // Initialize on Load
 document.addEventListener('DOMContentLoaded', () => {
@@ -41,7 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 1. Service Worker Registration & Update Trigger
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/pwa/sw.js?v=4')
+    navigator.serviceWorker.register('/pwa/sw.js?v=5')
       .then((reg) => {
         console.log('[PWA] Service Worker registriert:', reg.scope);
         reg.update();
@@ -275,6 +285,7 @@ async function startApp() {
   checkServerHealth();
   await loadRealTonies();
   await loadLibraryFiles();
+  await updateStorageStats();
   loadTonieboxes();
 }
 
@@ -492,6 +503,12 @@ async function handleCoverImageUpload(input) {
   const file = input.files?.[0];
   if (!file) return;
 
+  if (isStorageLimitReached()) {
+    showToast(`⛔ Upload blockiert: Speicherlimit von ${storageSoftcapGB.toFixed(1)} GB ist erreicht!`, 'error');
+    input.value = '';
+    return;
+  }
+
   const btn = document.getElementById('btnUploadCover');
   btn.classList.add('uploading');
   btn.innerHTML = '<span>⏳ Lade Bild hoch...</span>';
@@ -522,6 +539,7 @@ async function handleCoverImageUpload(input) {
       document.querySelectorAll('.icon-preset-btn').forEach(b => b.classList.remove('active'));
 
       showToast('📸 Coverbild erfolgreich hochgeladen!', 'success');
+      await updateStorageStats();
     } else {
       throw new Error(`Status ${res.status}`);
     }
@@ -546,6 +564,12 @@ function removeCustomCoverImage() {
 async function handleAudioFilesUpload(input) {
   const files = Array.from(input.files || []);
   if (files.length === 0) return;
+
+  if (isStorageLimitReached()) {
+    showToast(`⛔ Upload blockiert: Speicherlimit von ${storageSoftcapGB.toFixed(1)} GB ist erreicht! Bitte lösche zuerst Dateien in der Library.`, 'error');
+    input.value = '';
+    return;
+  }
 
   const btn = document.getElementById('btnUploadAudioFiles');
   btn.classList.add('uploading');
@@ -577,8 +601,9 @@ async function handleAudioFilesUpload(input) {
     }
   }
 
-  // Library-Cache neu laden
+  // Library-Cache und Speicherstatistiken neu laden
   await loadLibraryFiles();
+  await updateStorageStats();
 
   btn.classList.remove('uploading');
   btn.innerHTML = '<span>📁 Audiodateien direkt hochladen (Mehrfachauswahl)</span>';
@@ -942,6 +967,258 @@ async function loadLibraryFiles() {
   } catch (e) {
     console.warn('Could not load library files:', e);
   }
+}
+
+// 13. Speicherüberwachung & Storage Softcap Management
+function isStorageLimitReached() {
+  return storageStats.isCritical;
+}
+
+function triggerAudioUpload() {
+  if (isStorageLimitReached()) {
+    showToast(`⛔ Upload blockiert: Speicherlimit (${storageSoftcapGB.toFixed(1)} GB) erreicht! Bitte erst Dateien löschen.`, 'error');
+    return;
+  }
+  document.getElementById('wizardAudioUploadInput')?.click();
+}
+
+function updateWizardStorageNotice() {
+  const notice = document.getElementById('wizardStorageNotice');
+  if (!notice) return;
+
+  const used = formatBytes(storageStats.totalUsedBytes);
+  const limit = `${storageSoftcapGB.toFixed(1)} GB`;
+
+  if (storageStats.isCritical) {
+    notice.className = 'storage-micro-notice danger';
+    notice.innerHTML = `⛔ Speicher voll (${used} / ${limit})! Uploads gesperrt.`;
+  } else if (storageStats.isWarning) {
+    notice.className = 'storage-micro-notice warning';
+    notice.innerHTML = `⚠️ Speicher fast voll: ${used} / ${limit} (${storageStats.percentUsed}%).`;
+  } else {
+    notice.className = 'storage-micro-notice';
+    notice.innerHTML = `💾 Speicher: ${used} / ${limit} belegt (${storageStats.percentUsed}%).`;
+  }
+}
+
+function formatBytes(bytes) {
+  if (!bytes || isNaN(bytes) || bytes <= 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(i >= 3 ? 2 : 1)) + ' ' + sizes[i];
+}
+
+async function updateStorageStats() {
+  const maxBytes = storageSoftcapGB * 1024 * 1024 * 1024;
+  let totalBytes = 0;
+  let fileList = [];
+
+  try {
+    // 1. Library-Audiodateien
+    const resLib = await fetch('/api/fileIndexV2?special=library');
+    if (resLib.ok) {
+      const data = await resLib.json();
+      const files = data.files || (Array.isArray(data) ? data : []);
+      files.forEach(f => {
+        if (!f.isDir && f.name !== '..' && f.name !== '.') {
+          const sz = f.size || 0;
+          totalBytes += sz;
+          fileList.push({
+            name: f.name,
+            size: sz,
+            date: f.date || 0,
+            special: 'library'
+          });
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('[Storage] Fehler beim Abrufen der Library-Dateien:', e);
+  }
+
+  try {
+    // 2. Custom Cover-Bilder
+    const resImg = await fetch('/api/fileIndexV2?special=custom_img');
+    if (resImg.ok) {
+      const data = await resImg.json();
+      const files = data.files || (Array.isArray(data) ? data : []);
+      files.forEach(f => {
+        if (!f.isDir && f.name !== '..' && f.name !== '.') {
+          totalBytes += (f.size || 0);
+        }
+      });
+    }
+  } catch (e) {}
+
+  try {
+    // 3. Content Directory (TAF / Firmware / Box Files)
+    const resContent = await fetch('/api/fileIndexV2');
+    if (resContent.ok) {
+      const data = await resContent.json();
+      const files = data.files || (Array.isArray(data) ? data : []);
+      files.forEach(f => {
+        if (!f.isDir && f.name !== '..' && f.name !== '.') {
+          totalBytes += (f.size || f.tafHeader?.size || 0);
+        }
+      });
+    }
+  } catch (e) {}
+
+  // Größte Dateien zuerst sortieren
+  fileList.sort((a, b) => b.size - a.size);
+
+  const ratio = totalBytes / maxBytes;
+  const pct = Math.min(100, Math.round(ratio * 1000) / 10);
+  const isWarning = ratio >= 0.8 && ratio < 1.0;
+  const isCritical = ratio >= 1.0;
+
+  storageStats = {
+    totalUsedBytes: totalBytes,
+    maxBytes: maxBytes,
+    percentUsed: pct,
+    isWarning: isWarning,
+    isCritical: isCritical,
+    fileDetails: fileList
+  };
+
+  renderStorageWidget();
+  updateWizardStorageNotice();
+}
+
+function renderStorageWidget() {
+  const usageText = document.getElementById('storageUsageText');
+  const bar = document.getElementById('storageProgressBar');
+  const percentText = document.getElementById('storagePercentText');
+  const remainingText = document.getElementById('storageRemainingText');
+  const alertBanner = document.getElementById('storageAlertBanner');
+  const alertIcon = document.getElementById('storageAlertIcon');
+  const alertMsg = document.getElementById('storageAlertMsg');
+  const toggleText = document.getElementById('storageToggleText');
+
+  if (!bar) return;
+
+  const usedStr = formatBytes(storageStats.totalUsedBytes);
+  const limitStr = `${storageSoftcapGB.toFixed(1)} GB`;
+  const remainingBytes = Math.max(0, storageStats.maxBytes - storageStats.totalUsedBytes);
+  const remainingStr = formatBytes(remainingBytes);
+
+  if (usageText) {
+    usageText.innerText = `${usedStr} / ${limitStr} belegt (${storageStats.percentUsed}%)`;
+  }
+
+  bar.style.width = `${Math.min(100, storageStats.percentUsed)}%`;
+  bar.classList.toggle('warning', storageStats.isWarning);
+  bar.classList.toggle('danger', storageStats.isCritical);
+
+  if (percentText) {
+    percentText.innerText = `${storageStats.percentUsed}% von ${limitStr} belegt`;
+  }
+
+  if (remainingText) {
+    remainingText.innerText = storageStats.isCritical ? '0 B frei' : `Noch ${remainingStr} frei`;
+  }
+
+  // Warnhinweis / Alarmbanner bei >= 80% bzw. >= 100%
+  if (alertBanner && alertMsg && alertIcon) {
+    if (storageStats.isCritical) {
+      alertBanner.style.display = 'flex';
+      alertBanner.className = 'storage-alert-banner danger';
+      alertIcon.innerText = '⛔';
+      alertMsg.innerHTML = `<strong>Speicherlimit erreicht (${usedStr} / ${limitStr})!</strong><br>Neue Uploads sind gesperrt, um den Server vor Ausfall zu schützen. Bitte lösche nicht mehr benötigte Audiodateien über die Liste unten.`;
+    } else if (storageStats.isWarning) {
+      alertBanner.style.display = 'flex';
+      alertBanner.className = 'storage-alert-banner warning';
+      alertIcon.innerText = '⚠️';
+      alertMsg.innerHTML = `<strong>Speicherwarnung: ${storageStats.percentUsed}% belegt!</strong><br>Der Server nähert sich der Kapazitätsgrenze (noch ${remainingStr} frei). Bitte plane das Bereinigen alter Audiodateien ein.`;
+    } else {
+      alertBanner.style.display = 'none';
+    }
+  }
+
+  if (toggleText) {
+    toggleText.innerText = `📁 Gespeicherte Audiodateien verwalten (${storageStats.fileDetails.length} Dateien)`;
+  }
+
+  renderStorageFilesList();
+}
+
+function toggleStorageFilesList() {
+  isStorageFilesExpanded = !isStorageFilesExpanded;
+  const container = document.getElementById('storageFilesContainer');
+  const arrow = document.getElementById('storageToggleArrow');
+  if (container) {
+    container.style.display = isStorageFilesExpanded ? 'block' : 'none';
+  }
+  if (arrow) {
+    arrow.innerText = isStorageFilesExpanded ? '▴' : '▾';
+  }
+}
+
+function renderStorageFilesList() {
+  const listEl = document.getElementById('storageFilesList');
+  if (!listEl) return;
+
+  if (storageStats.fileDetails.length === 0) {
+    listEl.innerHTML = '<div style="color: var(--text-dim); font-size: 0.8rem; padding: 6px 0;">Keine Audiodateien in der Library hinterlegt.</div>';
+    return;
+  }
+
+  listEl.innerHTML = storageStats.fileDetails.map(f => `
+    <div class="storage-file-item">
+      <div class="storage-file-info">
+        <span class="storage-file-name" title="${f.name}">🎵 ${f.name}</span>
+        <span class="storage-file-size">${formatBytes(f.size)}</span>
+      </div>
+      <button type="button" class="btn-file-delete" onclick="deleteLibraryFile('${f.name.replace(/'/g, "\\'")}')" title="Datei vom Server löschen">
+        🗑️ Löschen
+      </button>
+    </div>
+  `).join('');
+}
+
+async function deleteLibraryFile(fileName) {
+  if (!confirm(`Möchtest du die Datei "${fileName}" wirklich endgültig vom Server löschen?\n\nDadurch wird Speicherplatz freigegeben.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/fileDelete?special=library&path=/${encodeURIComponent(fileName)}`, {
+      method: 'POST',
+      headers: {
+        'X-Tonie-Key': currentAuthKey
+      },
+      body: fileName
+    });
+
+    if (res.ok || res.status === 200) {
+      showToast(`🗑️ "${fileName}" erfolgreich gelöscht!`, 'success');
+      await loadLibraryFiles();
+      await updateStorageStats();
+    } else {
+      throw new Error(`Status ${res.status}`);
+    }
+  } catch (err) {
+    console.error('File delete failed:', err);
+    showToast('Fehler beim Löschen der Datei.', 'error');
+  }
+}
+
+function configureStorageLimit() {
+  const current = storageSoftcapGB;
+  const input = prompt(`Aktuelles Server-Speicherlimit (Softcap): ${current} GB\n\nGib das gewünschte Speicherlimit in Gigabyte (GB) ein:`, current);
+  if (input === null) return;
+
+  const val = parseFloat(input);
+  if (isNaN(val) || val <= 0) {
+    showToast('Ungültiges Limit eingegeben. Bitte eine positive Zahl angeben.', 'error');
+    return;
+  }
+
+  storageSoftcapGB = val;
+  localStorage.setItem('tonie_storage_softcap_gb', val.toString());
+  showToast(`💾 Server-Speicherlimit auf ${val} GB gesetzt!`, 'success');
+  updateStorageStats();
 }
 
 // 13. Manual Tag Simulator

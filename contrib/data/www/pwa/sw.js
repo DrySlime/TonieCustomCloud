@@ -1,4 +1,4 @@
-const CACHE_NAME = 'toniecloud-pwa-v4';
+const CACHE_NAME = 'toniecloud-pwa-v5';
 const ASSETS = [
   '/pwa/index.html',
   '/pwa/style.css',

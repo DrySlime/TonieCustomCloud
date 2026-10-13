@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0b0d14">
   <link rel="manifest" href="/pwa/manifest.json">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
-  <link rel="stylesheet" href="/pwa/style.css?v=4">
+  <link rel="stylesheet" href="/pwa/style.css?v=5">
 </head>
 <body>
 
@@ -106,6 +106,48 @@
       <div class="section-header">
         <h2 class="section-title">Tonie-Sammlung</h2>
         <button class="btn-secondary" onclick="openOnboardingWizard('')">+ Neuer Tonie</button>
+      </div>
+
+      <!-- Server-Kapazität & Storage Softcap Widget -->
+      <div id="storageWidget" class="storage-widget-card">
+        <div class="storage-header">
+          <div class="storage-title-wrap">
+            <span class="storage-icon">💾</span>
+            <div>
+              <div class="storage-title">Server-Speicher & Kapazität</div>
+              <div id="storageUsageText" class="storage-usage-sub">Wird berechnet...</div>
+            </div>
+          </div>
+          <button type="button" class="btn-storage-config" onclick="configureStorageLimit()" title="Speicherlimit (Softcap) anpassen">⚙️ Limit</button>
+        </div>
+
+        <div class="storage-progress-container">
+          <div id="storageProgressBar" class="storage-progress-bar" style="width: 0%;"></div>
+        </div>
+
+        <div class="storage-meta-row">
+          <span id="storagePercentText">0% belegt</span>
+          <span id="storageRemainingText">Berechne...</span>
+        </div>
+
+        <!-- Warnhinweis / Alarmbanner (bei >= 80% bzw. >= 100%) -->
+        <div id="storageAlertBanner" class="storage-alert-banner" style="display: none;">
+          <span id="storageAlertIcon" class="storage-alert-icon">⚠️</span>
+          <div id="storageAlertMsg" class="storage-alert-msg"></div>
+        </div>
+
+        <!-- Dateien-Verwaltungs-Toggle -->
+        <div class="storage-file-mgmt">
+          <button type="button" class="btn-storage-toggle" onclick="toggleStorageFilesList()">
+            <span id="storageToggleText">📁 Gespeicherte Audiodateien verwalten (0 Dateien)</span>
+            <span id="storageToggleArrow">▾</span>
+          </button>
+          <div id="storageFilesContainer" class="storage-files-container" style="display: none;">
+            <div id="storageFilesList" class="storage-files-list">
+              <!-- Dynamically populated by app.js -->
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Account & Family Filter Tabs -->
@@ -290,9 +332,10 @@
           <!-- Direkt-Upload Button (Ohne TAF-Converter) -->
           <div style="margin-bottom: 12px;">
             <input type="file" id="wizardAudioUploadInput" multiple accept="audio/*, .mp3, .ogg, .flac, .wav, .m4a, .aac" style="display: none;" onchange="handleAudioFilesUpload(this)">
-            <button type="button" id="btnUploadAudioFiles" class="upload-box-btn" onclick="document.getElementById('wizardAudioUploadInput').click()">
+            <button type="button" id="btnUploadAudioFiles" class="upload-box-btn" onclick="triggerAudioUpload()">
               <span>📁 Audiodatei(en) direkt hochladen (Mehrfachauswahl)</span>
             </button>
+            <div id="wizardStorageNotice" class="storage-micro-notice"></div>
           </div>
 
           <!-- Playlist / Kapitel Liste -->
@@ -340,6 +383,6 @@
   <!-- Toast Message -->
   <div id="toast" class="toast"></div>
 
-  <script src="/pwa/app.js?v=4"></script>
+  <script src="/pwa/app.js?v=5"></script>
 </body>
 </html>
