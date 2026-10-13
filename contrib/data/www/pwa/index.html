@@ -23,6 +23,7 @@
         <span class="status-dot"></span>
         <span id="statusText">Verbunden</span>
       </div>
+      <button id="btnAuth" class="btn-auth" onclick="handleAuthClick()" title="Passwort eingeben für Änderungen">🔒 Entsperren</button>
       <a href="/web" class="btn-admin" title="Vollständige Admin-Oberfläche">⚙️ Admin</a>
     </div>
   </header>
@@ -217,6 +218,31 @@
       <div id="sampleTagList" style="display: flex; flex-wrap: wrap; gap: 8px;">
         <!-- Filled by app.js -->
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: PASSWORT AUTHENTIFIZIERUNG -->
+  <div id="authModal" class="modal-overlay" onclick="closeModalOnOverlay(event, 'authModal')">
+    <div class="modal-content" style="max-width: 400px; margin: auto;">
+      <div class="modal-drag-handle"></div>
+      <div style="font-size: 2.2rem; text-align: center; margin-bottom: 8px;">🔐</div>
+      <h3 style="font-size: 1.25rem; font-weight: 700; text-align: center; margin-bottom: 6px;">Zugriffsberechtigung</h3>
+      <p style="color: var(--text-muted); font-size: 0.85rem; text-align: center; margin-bottom: 20px; line-height: 1.4;">
+        Bitte gib dein Passwort ein (<strong>Ivan</strong>, <strong>Carla</strong> oder <strong>Joel</strong>), um Tonies anzulegen, zu bearbeiten oder Audio hochzuladen.
+      </p>
+
+      <form id="authForm" onsubmit="submitAuthPassword(event)">
+        <div style="position: relative; margin-bottom: 12px;">
+          <input type="password" id="authPasswordInput" class="form-input" placeholder="Passwort eingeben..." required autocomplete="current-password" style="padding-right: 44px; font-size: 1rem;">
+          <button type="button" id="btnToggleAuthPw" onclick="toggleAuthPasswordVisibility()" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">👁️</button>
+        </div>
+        <div id="authErrorMsg" style="color: #f87171; font-size: 0.82rem; margin-bottom: 14px; text-align: center; display: none;"></div>
+
+        <div style="display: flex; gap: 10px;">
+          <button type="button" class="btn-secondary" style="flex: 1;" onclick="closeModal('authModal')">Abbrechen</button>
+          <button type="submit" class="btn-primary" style="flex: 1; justify-content: center;">Entsperren</button>
+        </div>
+      </form>
     </div>
   </div>
 

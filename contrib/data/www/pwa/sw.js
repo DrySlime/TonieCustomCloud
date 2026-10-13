@@ -1,6 +1,5 @@
-const CACHE_NAME = 'toniecloud-pwa-v1';
+const CACHE_NAME = 'toniecloud-pwa-v2';
 const ASSETS = [
-  '/pwa/',
   '/pwa/index.html',
   '/pwa/style.css',
   '/pwa/app.js',
@@ -22,7 +21,10 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys.map((key) => {
-          if (key !== CACHE_NAME) return caches.delete(key);
+          if (key !== CACHE_NAME) {
+            console.log('[SW] Cache geloescht:', key);
+            return caches.delete(key);
+          }
         })
       )
     )
@@ -31,14 +33,31 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Network first for API endpoints, Cache first for static assets
-  if (event.request.url.includes('/api/')) {
+  const url = new URL(event.request.url);
+
+  // APIs immer direkt vom Netzwerk laden (kein Caching)
+  if (url.pathname.startsWith('/api/')) {
     event.respondWith(fetch(event.request));
-  } else {
-    event.respondWith(
-      caches.match(event.request).then((cachedResponse) => {
-        return cachedResponse || fetch(event.request);
-      })
-    );
+    return;
   }
+
+  // HTML-Dokument-Navigation: Netzwerk zuerst, bei Offline Cache index.html
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('/pwa/index.html'))
+    );
+    return;
+  }
+
+  // Statische Assets: Cache zuerst, Fallback Netzwerk
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      return (
+        cachedResponse ||
+        fetch(event.request).then((networkResponse) => {
+          return networkResponse;
+        })
+      );
+    })
+  );
 });

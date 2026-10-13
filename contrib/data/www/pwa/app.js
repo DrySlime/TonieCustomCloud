@@ -1,14 +1,22 @@
 // TonieCloud Consumer PWA Client Logic
+const ALLOWED_USERS = {
+  'Ivan19': 'Ivan',
+  'Carla03': 'Carla',
+  'Joel09': 'Joel'
+};
+
 let toniesCache = [];
 let customToniesCache = [];
 let libraryFilesCache = [];
 let currentTonieDetail = null;
 let isNfcScanning = false;
 let nfcReaderInstance = null;
+let pendingAuthCallback = null;
 
 // Initialize on Load
 document.addEventListener('DOMContentLoaded', () => {
   initServiceWorker();
+  initAuthStatus();
   checkServerHealth();
   loadAllTonies();
   loadLibraryFiles();
@@ -16,16 +24,126 @@ document.addEventListener('DOMContentLoaded', () => {
   setupAudioPlayer();
 });
 
-// 1. Service Worker Registration
+// 1. Service Worker Registration & Update Trigger
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/pwa/sw.js')
-      .then(() => console.log('[PWA] Service Worker registered'))
-      .catch((err) => console.warn('[PWA] Service Worker error:', err));
+      .then((reg) => {
+        console.log('[PWA] Service Worker registriert:', reg.scope);
+        // Prüfe sofort auf Updates
+        reg.update();
+      })
+      .catch((err) => console.warn('[PWA] Service Worker Fehler:', err));
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        console.log('[PWA] Neuer Service Worker aktiv. Aktualisiere...');
+        window.location.reload();
+      }
+    });
   }
 }
 
-// 2. Server Status Polling
+// 2. Authentifizierung (Ivan19, Carla03, Joel09)
+function getStoredAuthKey() {
+  const key = localStorage.getItem('tonie_auth_key');
+  if (key && ALLOWED_USERS[key]) {
+    return key;
+  }
+  return null;
+}
+
+function initAuthStatus() {
+  const key = getStoredAuthKey();
+  const btn = document.getElementById('btnAuth');
+  if (key) {
+    const user = ALLOWED_USERS[key];
+    btn.innerHTML = `🔓 ${user}`;
+    btn.classList.add('unlocked');
+    btn.title = `Eingeloggt als ${user} (Klicken zum Abmelden)`;
+  } else {
+    btn.innerHTML = `🔒 Entsperren`;
+    btn.classList.remove('unlocked');
+    btn.title = 'Passwort eingeben für Änderungen';
+  }
+}
+
+function handleAuthClick() {
+  const key = getStoredAuthKey();
+  if (key) {
+    const user = ALLOWED_USERS[key];
+    if (confirm(`Du bist aktuell als "${user}" angemeldet. Möchtest du dich abmelden?`)) {
+      localStorage.removeItem('tonie_auth_key');
+      localStorage.removeItem('tonie_auth_user');
+      initAuthStatus();
+      showToast('Erfolgreich abgemeldet.', 'info');
+    }
+  } else {
+    openAuthModal();
+  }
+}
+
+function openAuthModal(callback) {
+  pendingAuthCallback = callback || null;
+  const modal = document.getElementById('authModal');
+  const input = document.getElementById('authPasswordInput');
+  const err = document.getElementById('authErrorMsg');
+  input.value = '';
+  err.style.display = 'none';
+  modal.classList.add('open');
+  setTimeout(() => input.focus(), 150);
+}
+
+function toggleAuthPasswordVisibility() {
+  const input = document.getElementById('authPasswordInput');
+  const btn = document.getElementById('btnToggleAuthPw');
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.innerText = '🙈';
+  } else {
+    input.type = 'password';
+    btn.innerText = '👁️';
+  }
+}
+
+function submitAuthPassword(e) {
+  e.preventDefault();
+  const input = document.getElementById('authPasswordInput');
+  const val = (input.value || '').trim();
+  const err = document.getElementById('authErrorMsg');
+
+  if (ALLOWED_USERS[val]) {
+    const user = ALLOWED_USERS[val];
+    localStorage.setItem('tonie_auth_key', val);
+    localStorage.setItem('tonie_auth_user', user);
+    initAuthStatus();
+    closeModal('authModal');
+    showToast(`🎉 Willkommen, ${user}! Du bist jetzt entsperrt.`, 'success');
+
+    if (typeof pendingAuthCallback === 'function') {
+      const cb = pendingAuthCallback;
+      pendingAuthCallback = null;
+      cb();
+    }
+  } else {
+    err.innerText = 'Ungültiges Passwort. Zugriff nur für Ivan, Carla oder Joel.';
+    err.style.display = 'block';
+    input.select();
+  }
+}
+
+function requireAuth(actionCallback) {
+  const key = getStoredAuthKey();
+  if (key) {
+    actionCallback();
+  } else {
+    openAuthModal(actionCallback);
+  }
+}
+
+// 3. Server Status Polling
 async function checkServerHealth() {
   const badge = document.getElementById('statusBadge');
   const text = document.getElementById('statusText');
@@ -45,7 +163,7 @@ async function checkServerHealth() {
   }
 }
 
-// 3. Web NFC Scanning API
+// 4. Web NFC Scanning API
 async function startNfcScan() {
   const ring = document.getElementById('nfcRing');
   const btn = document.getElementById('btnScanNfc');
@@ -92,7 +210,7 @@ async function startNfcScan() {
   }
 }
 
-// 4. Tag Matching & Resolution Engine
+// 5. Tag Matching & Resolution Engine
 async function resolveTag(tagUid) {
   if (!tagUid) return;
   const cleanUid = tagUid.trim().toUpperCase();
@@ -122,15 +240,14 @@ async function resolveTag(tagUid) {
     // Bekannter Tonie -> Detail Modal öffnen
     openDetailModal(found, cleanUid);
   } else {
-    // Unbekannter Tag -> Neuer Tonie Wizard starten!
+    // Unbekannter Tag -> Neuer Tonie Wizard (nach Auth)
     openOnboardingWizard(cleanUid);
   }
 }
 
-// 5. Data Loading (Tonies, Custom, Library, Boxes)
+// 6. Data Loading (Tonies, Custom, Library, Boxes)
 async function loadAllTonies() {
   try {
-    // Custom Tonies
     const resCustom = await fetch('/api/toniesCustomJson');
     if (resCustom.ok) {
       const data = await resCustom.json();
@@ -141,7 +258,6 @@ async function loadAllTonies() {
   }
 
   try {
-    // Offizielle Tonies
     const resOff = await fetch('/api/toniesJson');
     if (resOff.ok) {
       const data = await resOff.json();
@@ -206,7 +322,7 @@ async function loadTonieboxes() {
   }
 }
 
-// 6. UI Renderers
+// 7. UI Renderers
 function renderLibrary(list) {
   const grid = document.getElementById('libraryGrid');
   if (!list || list.length === 0) {
@@ -258,7 +374,7 @@ function filterLibrary() {
   renderLibrary(filtered);
 }
 
-// 7. Modals: Detail & Audio Player
+// 8. Modals: Detail & Audio Player
 function openDetailModal(item, uid) {
   currentTonieDetail = item;
   const modal = document.getElementById('detailModal');
@@ -301,13 +417,36 @@ function openDetailModal(item, uid) {
   modal.classList.add('open');
 }
 
-// 8. Modals: Onboarding Wizard für neue Tags
-function openOnboardingWizard(tagUid) {
-  const modal = document.getElementById('wizardModal');
-  document.getElementById('wizardTagUid').value = tagUid || 'TAG_' + Math.random().toString(36).substring(2, 10).toUpperCase();
-  document.getElementById('wizardTitle').value = '';
-  document.getElementById('wizardSeries').value = '';
-  modal.classList.add('open');
+function editCurrentTonie() {
+  if (!currentTonieDetail) return;
+  requireAuth(() => {
+    closeModal('detailModal');
+    openOnboardingWizard(
+      currentTonieDetail.nfc_uid || currentTonieDetail.ruid || currentTonieDetail.uid || '',
+      currentTonieDetail.title || '',
+      currentTonieDetail.series || '',
+      currentTonieDetail.icon || '🧸',
+      currentTonieDetail.audio_file || ''
+    );
+  });
+}
+
+// 9. Modals: Onboarding Wizard für neue Tags
+function openOnboardingWizard(tagUid, initialTitle = '', initialSeries = '', initialIcon = '🧸', initialAudio = '') {
+  requireAuth(() => {
+    const modal = document.getElementById('wizardModal');
+    document.getElementById('wizardTagUid').value = tagUid || 'TAG_' + Math.random().toString(36).substring(2, 10).toUpperCase();
+    document.getElementById('wizardTitle').value = initialTitle;
+    document.getElementById('wizardSeries').value = initialSeries;
+    document.getElementById('wizardSelectedIcon').value = initialIcon;
+    if (initialAudio) {
+      document.getElementById('wizardAudioSelect').value = initialAudio;
+    }
+    document.querySelectorAll('.icon-preset-btn').forEach(b => {
+      b.classList.toggle('active', b.innerText.trim() === initialIcon);
+    });
+    modal.classList.add('open');
+  });
 }
 
 function selectIconPreset(icon, btn) {
@@ -318,6 +457,12 @@ function selectIconPreset(icon, btn) {
 
 async function saveCustomTonie(e) {
   e.preventDefault();
+  const authKey = getStoredAuthKey();
+  if (!authKey) {
+    requireAuth(() => saveCustomTonie(e));
+    return;
+  }
+
   const uid = document.getElementById('wizardTagUid').value.trim();
   const title = document.getElementById('wizardTitle').value.trim();
   const series = document.getElementById('wizardSeries').value.trim();
@@ -337,9 +482,20 @@ async function saveCustomTonie(e) {
   try {
     const res = await fetch('/api/toniesCustomJsonUpsert', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Tonie-Key': authKey
+      },
       body: JSON.stringify(payload)
     });
+
+    if (res.status === 403) {
+      localStorage.removeItem('tonie_auth_key');
+      initAuthStatus();
+      showToast('Sitzung abgelaufen oder Passwort abgelehnt. Bitte erneut entsperren.', 'error');
+      openAuthModal(() => saveCustomTonie(e));
+      return;
+    }
 
     if (res.ok || res.status === 200) {
       showToast('🎉 Tonie erfolgreich gespeichert!', 'success');
@@ -352,7 +508,6 @@ async function saveCustomTonie(e) {
       throw new Error();
     }
   } catch (err) {
-    // Falls API offline ist, lokal cachen für Demo/Mock
     showToast('Tonie lokal zwischengespeichert!', 'success');
     customToniesCache.unshift(payload);
     closeModal('wizardModal');
@@ -361,7 +516,7 @@ async function saveCustomTonie(e) {
   }
 }
 
-// 9. Manual Tag Simulator
+// 10. Manual Tag Simulator
 function openManualTagModal() {
   document.getElementById('manualTagModal').classList.add('open');
 }
@@ -387,7 +542,7 @@ function populateSampleTags() {
   `).join('');
 }
 
-// 10. Audio Player Engine
+// 11. Audio Player Engine
 function setupAudioPlayer() {
   const audio = document.getElementById('audioElement');
   const progress = document.getElementById('scrubberProgress');
@@ -442,7 +597,7 @@ function formatTime(secs) {
   return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
-// 11. Modal Controls & Tabs
+// 12. Modal Controls & Tabs
 function switchTab(tabName, btn) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));

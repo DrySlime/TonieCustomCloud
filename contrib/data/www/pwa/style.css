@@ -139,6 +139,34 @@ header.app-header {
   background: rgba(99, 102, 241, 0.15);
 }
 
+.btn-auth {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  text-decoration: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-auth:hover {
+  color: #fff;
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.btn-auth.unlocked {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #34d399;
+}
+
 /* Main Container */
 main.app-container {
   max-width: 680px;
