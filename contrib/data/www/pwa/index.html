@@ -12,18 +12,66 @@
 </head>
 <body>
 
+  <!-- DEDICATED FULLSCREEN LOGIN VIEW -->
+  <div id="loginScreen" class="hidden">
+    <div class="login-card">
+      <div class="login-logo">🧸</div>
+      <h1 class="login-title">TonieCloud</h1>
+      <p class="login-subtitle">Wähle deinen Account & deine Toniebox:</p>
+
+      <!-- Account Profile Cards -->
+      <div class="profile-grid">
+        <div class="profile-card active" id="profileIvan" onclick="selectUserProfile('Ivan19', 'Ivan', 'Ivans Toniebox')">
+          <span class="profile-avatar">👦</span>
+          <span class="profile-name">Ivan</span>
+          <span class="profile-box-hint">Ivans Box</span>
+        </div>
+        <div class="profile-card" id="profileCarla" onclick="selectUserProfile('Carla03', 'Carla', 'Schwesters Toniebox')">
+          <span class="profile-avatar">👧</span>
+          <span class="profile-name">Carla</span>
+          <span class="profile-box-hint">Schwesters Box</span>
+        </div>
+        <div class="profile-card" id="profileJoel" onclick="selectUserProfile('Joel09', 'Joel', 'Schwesters Toniebox')">
+          <span class="profile-avatar">🧒</span>
+          <span class="profile-name">Joel</span>
+          <span class="profile-box-hint">Schwesters Box</span>
+        </div>
+      </div>
+
+      <!-- Password Login Form -->
+      <form id="loginForm" onsubmit="handleLoginSubmit(event)">
+        <div style="position: relative; margin-bottom: 12px;">
+          <input type="password" id="loginPasswordInput" class="form-input" placeholder="Passwort für Ivan eingeben..." required autocomplete="current-password" style="padding-right: 44px;">
+          <button type="button" onclick="togglePasswordVisibility('loginPasswordInput', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">👁️</button>
+        </div>
+        <div id="loginErrorMsg" style="color: #f87171; font-size: 0.82rem; margin-bottom: 12px; display: none;"></div>
+        <button type="submit" class="btn-primary" style="width: 100%; justify-content: center;">🚀 Anmelden</button>
+      </form>
+
+      <!-- Biometrischer Login Button (Fingerabdruck / FaceID) -->
+      <button type="button" id="btnBiometricLogin" class="btn-biometric" onclick="loginWithBiometrics()" style="display: none;">
+        <span>👆 Mit Fingerabdruck / FaceID anmelden</span>
+      </button>
+
+      <div style="margin-top: 18px; font-size: 0.75rem; color: var(--text-dim);">
+        Passwörter: <code>Ivan19</code> • <code>Carla03</code> • <code>Joel09</code>
+      </div>
+    </div>
+  </div>
+
   <!-- App Header -->
   <header class="app-header">
-    <a href="/pwa/" class="brand">
+    <a href="/pwa/index.html" class="brand">
       <div class="brand-icon">🧸</div>
       <span class="brand-title">TonieCloud</span>
     </a>
     <div class="header-actions">
-      <div id="statusBadge" class="status-badge">
-        <span class="status-dot"></span>
-        <span id="statusText">Verbunden</span>
-      </div>
-      <button id="btnAuth" class="btn-auth" onclick="handleAuthClick()" title="Passwort eingeben für Änderungen">🔒 Entsperren</button>
+      <!-- Active Account & Toniebox Badge -->
+      <button id="userProfileBadge" class="btn-auth unlocked" onclick="handleAccountMenu()" title="Account & Toniebox verwalten">
+        <span id="userProfileAvatar">👦</span>
+        <span id="userProfileName">Ivan</span>
+        <span style="opacity: 0.7; font-size: 0.72rem; margin-left: 2px;" id="userProfileBox">(Ivans Box)</span>
+      </button>
       <a href="/web" class="btn-admin" title="Vollständige Admin-Oberfläche">⚙️ Admin</a>
     </div>
   </header>
@@ -38,7 +86,7 @@
           <div class="nfc-icon-inner">📲</div>
         </div>
         <h1 class="hero-title">Tonie Scannen</h1>
-        <p class="hero-subtitle">Halte deinen Tonie oder NFC-Tag an dein Smartphone, um ihn sofort abzuspielen oder zu bearbeiten.</p>
+        <p class="hero-subtitle">Halte deinen Tonie oder NFC-Tag an dein Smartphone, um ihn abzuspielen oder für deine Toniebox freizuschalten.</p>
         <button id="btnScanNfc" class="btn-primary" onclick="startNfcScan()">
           <span>📡 NFC-Scan starten</span>
         </button>
@@ -50,24 +98,41 @@
       <!-- Quick Section: Zuletzt auf Toniebox erkannt -->
       <div class="section-header">
         <h2 class="section-title">Kürzlich aktiv</h2>
-        <span id="activeCountBadge" class="tag-badge">Lade...</span>
+        <span id="activeCountBadge" class="tag-badge">0 bereit</span>
       </div>
       <div id="recentToniesGrid" class="tonie-grid">
-        <!-- Rendered by app.js -->
+        <!-- Rendered by app.js (Echte Tonies only) -->
       </div>
     </section>
 
-    <!-- TAB 2: LIBRARY (MEINE TONIES) -->
+    <!-- TAB 2: LIBRARY (MEINE TONIES & GETEILTER POOL) -->
     <section id="tab-library" class="tab-content">
       <div class="section-header">
-        <h2 class="section-title">Meine Tonie-Sammlung</h2>
-        <button class="btn-secondary" onclick="openOnboardingWizard('')">+ Neuer Tag</button>
+        <h2 class="section-title">Tonie-Sammlung</h2>
+        <button class="btn-secondary" onclick="openOnboardingWizard('')">+ Neuer Tonie</button>
       </div>
+
+      <!-- Account & Family Filter Tabs -->
+      <div class="filter-pills">
+        <button class="filter-pill active" id="pillMyTonies" onclick="setLibraryFilter('my')">
+          <span>🧸 Meine Tonies</span>
+          <span id="badgeCountMy" style="opacity: 0.8;">(0)</span>
+        </button>
+        <button class="filter-pill" id="pillSharedTonies" onclick="setLibraryFilter('shared')">
+          <span>🔄 Geteilt von Familie</span>
+          <span id="badgeCountShared" style="opacity: 0.8;">(0)</span>
+        </button>
+        <button class="filter-pill" id="pillAllTonies" onclick="setLibraryFilter('all')">
+          <span>🌟 Alle Tonies</span>
+          <span id="badgeCountAll" style="opacity: 0.8;">(0)</span>
+        </button>
+      </div>
+
       <div style="margin-bottom: 16px;">
         <input type="text" id="librarySearch" class="form-input" placeholder="🔍 Tonie, Folge oder Hörspiel suchen..." oninput="filterLibrary()">
       </div>
       <div id="libraryGrid" class="tonie-grid">
-        <!-- Rendered by app.js -->
+        <!-- Rendered by app.js (Echte Tonies only) -->
       </div>
     </section>
 
@@ -109,7 +174,10 @@
         <div class="detail-meta">
           <h3 id="detailTitle" class="detail-title">Tonie Name</h3>
           <div id="detailSeries" class="detail-series">Serie / Modell</div>
-          <span id="detailTagUid" class="tag-badge">UID: --</span>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+            <span id="detailTagUid" class="tag-badge">UID: --</span>
+            <span id="detailOwnerBadge" class="owner-badge">👦 Ivan</span>
+          </div>
         </div>
       </div>
 
@@ -147,12 +215,12 @@
     </div>
   </div>
 
-  <!-- MODAL: NEUER TONIE WIZARD (ONBOARDING) -->
+  <!-- MODAL: NEUER TONIE WIZARD (ONBOARDING & CHIP ZUORDNUNG) -->
   <div id="wizardModal" class="modal-overlay" onclick="closeModalOnOverlay(event, 'wizardModal')">
     <div class="modal-content">
       <div class="modal-drag-handle"></div>
-      <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 6px;">✨ Neuer Tonie erkannt!</h3>
-      <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 20px;">Weise diesem Tag einen Namen, ein Bild und Audioinhalte zu.</p>
+      <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 6px;">✨ Neuer Tonie / Chip</h3>
+      <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 20px;">Weise diesem NFC-Chip einen Namen, Audioinhalte und Besitzer zu.</p>
 
       <form id="wizardForm" onsubmit="saveCustomTonie(event)">
         <div class="wizard-step">
@@ -167,7 +235,20 @@
 
         <div class="wizard-step">
           <label class="form-label">Serie / Kategorie</label>
-          <input type="text" id="wizardSeries" class="form-input" placeholder="z.B. Gute-Nacht-Geschichten">
+          <input type="text" id="wizardSeries" class="form-input" placeholder="z.B. Hörspiel-Klassiker">
+        </div>
+
+        <div class="wizard-step">
+          <label class="form-label">Besitzer & Zuordnung</label>
+          <select id="wizardOwnerSelect" class="form-input" style="cursor: pointer;">
+            <option value="Ivan">👦 Ivan (Ivans Toniebox)</option>
+            <option value="Carla">👧 Carla (Schwesters Toniebox)</option>
+            <option value="Joel">🧒 Joel (Schwesters Toniebox)</option>
+          </select>
+          <div style="font-size: 0.75rem; color: #34d399; margin-top: 6px; display: flex; align-items: center; gap: 4px;">
+            <span>✅</span>
+            <span>Chip-Sharing aktiv: Funktioniert auf allen Tonieboxen der Familie!</span>
+          </div>
         </div>
 
         <div class="wizard-step">
@@ -194,7 +275,7 @@
 
         <div style="display: flex; gap: 10px; margin-top: 24px;">
           <button type="button" class="btn-secondary" style="flex: 1;" onclick="closeModal('wizardModal')">Abbrechen</button>
-          <button type="submit" class="btn-primary" style="flex: 1;">💾 Speichern</button>
+          <button type="submit" class="btn-primary" style="flex: 1; justify-content: center;">💾 Speichern</button>
         </div>
       </form>
     </div>
@@ -213,36 +294,11 @@
       </div>
 
       <div class="section-header">
-        <h4 style="font-size: 0.85rem; color: var(--text-dim);">Bekannte Test-Tags:</h4>
+        <h4 style="font-size: 0.85rem; color: var(--text-dim);">Erkannte Tags im System:</h4>
       </div>
       <div id="sampleTagList" style="display: flex; flex-wrap: wrap; gap: 8px;">
         <!-- Filled by app.js -->
       </div>
-    </div>
-  </div>
-
-  <!-- MODAL: PASSWORT AUTHENTIFIZIERUNG -->
-  <div id="authModal" class="modal-overlay" onclick="closeModalOnOverlay(event, 'authModal')">
-    <div class="modal-content" style="max-width: 400px; margin: auto;">
-      <div class="modal-drag-handle"></div>
-      <div style="font-size: 2.2rem; text-align: center; margin-bottom: 8px;">🔐</div>
-      <h3 style="font-size: 1.25rem; font-weight: 700; text-align: center; margin-bottom: 6px;">Zugriffsberechtigung</h3>
-      <p style="color: var(--text-muted); font-size: 0.85rem; text-align: center; margin-bottom: 20px; line-height: 1.4;">
-        Bitte gib dein Passwort ein (<strong>Ivan</strong>, <strong>Carla</strong> oder <strong>Joel</strong>), um Tonies anzulegen, zu bearbeiten oder Audio hochzuladen.
-      </p>
-
-      <form id="authForm" onsubmit="submitAuthPassword(event)">
-        <div style="position: relative; margin-bottom: 12px;">
-          <input type="password" id="authPasswordInput" class="form-input" placeholder="Passwort eingeben..." required autocomplete="current-password" style="padding-right: 44px; font-size: 1rem;">
-          <button type="button" id="btnToggleAuthPw" onclick="toggleAuthPasswordVisibility()" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">👁️</button>
-        </div>
-        <div id="authErrorMsg" style="color: #f87171; font-size: 0.82rem; margin-bottom: 14px; text-align: center; display: none;"></div>
-
-        <div style="display: flex; gap: 10px;">
-          <button type="button" class="btn-secondary" style="flex: 1;" onclick="closeModal('authModal')">Abbrechen</button>
-          <button type="submit" class="btn-primary" style="flex: 1; justify-content: center;">Entsperren</button>
-        </div>
-      </form>
     </div>
   </div>
 
