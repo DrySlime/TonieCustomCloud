@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 1. Service Worker Registration & Update Trigger
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/pwa/sw.js')
+    navigator.serviceWorker.register('/pwa/sw.js?v=2')
       .then((reg) => {
         console.log('[PWA] Service Worker registriert:', reg.scope);
         // Prüfe sofort auf Updates
