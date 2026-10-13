@@ -1,0 +1,28 @@
+{
+  "name": "TonieCloud Player & Scanner",
+  "short_name": "TonieCloud",
+  "description": "Scanne und verwalte deine Tonies & Audiodateien per NFC",
+  "start_url": "/pwa/",
+  "scope": "/pwa/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0d13",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/img_custom.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/img_custom.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

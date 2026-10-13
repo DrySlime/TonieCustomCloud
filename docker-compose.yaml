@@ -1,0 +1,45 @@
+services:
+  teddycloud:
+    container_name: teddycloud
+    hostname: teddycloud
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: teddycloud:custom
+    restart: always
+    ports:
+      - "8443:8443"   # Webinterface HTTPS
+      - "8088:80"     # Webinterface HTTP (Host 8088 -> Container 80, kollisionsfrei mit Nginx)
+    networks:
+      - proxy_net
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/web/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    volumes:
+      - certs:/teddycloud/certs
+      - config:/teddycloud/config
+      - content:/teddycloud/data/content
+      - library:/teddycloud/data/library
+      - custom_img:/teddycloud/data/www/custom_img
+      - firmware:/teddycloud/data/firmware
+      - cache:/teddycloud/data/cache
+      - plugins:/teddycloud/data/www/plugins
+
+networks:
+  proxy_net:
+    external: true
+  default:
+
+volumes:
+  certs:
+  config:
+  content:
+  library:
+  custom_img:
+  firmware:
+  cache:
+  plugins:

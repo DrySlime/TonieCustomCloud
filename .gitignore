@@ -32,3 +32,17 @@ fake-server-tb2/*
 /dev-sandbox/run/
 /dev-sandbox/.teddycloud-native.pid
 *.pcap
+
+# Security: Block sensitive files, private keys and tokens
+*.key
+*.pem
+*.der
+*.crt
+*.pfx
+*.p12
+*.ovpn
+*.kdbx
+*.env*.local
+.env.local
+!dev-sandbox/certs/server/*
+

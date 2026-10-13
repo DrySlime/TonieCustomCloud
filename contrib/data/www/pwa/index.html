@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>TonieCloud | Smart NFC Tonie Hub</title>
+  <meta name="description" content="Moderne NFC-gestützte Toniebox-Verwaltung & Audio Player">
+  <meta name="theme-color" content="#0b0d14">
+  <link rel="manifest" href="/pwa/manifest.json">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/pwa/style.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <a href="/pwa/" class="brand">
+      <div class="brand-icon">🧸</div>
+      <span class="brand-title">TonieCloud</span>
+    </a>
+    <div class="header-actions">
+      <div id="statusBadge" class="status-badge">
+        <span class="status-dot"></span>
+        <span id="statusText">Verbunden</span>
+      </div>
+      <a href="/web" class="btn-admin" title="Vollständige Admin-Oberfläche">⚙️ Admin</a>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="app-container">
+
+    <!-- TAB 1: SCANNER & HOME -->
+    <section id="tab-scanner" class="tab-content active">
+      <div class="hero-scan-card">
+        <div id="nfcRing" class="nfc-animation-ring" onclick="startNfcScan()">
+          <div class="nfc-icon-inner">📲</div>
+        </div>
+        <h1 class="hero-title">Tonie Scannen</h1>
+        <p class="hero-subtitle">Halte deinen Tonie oder NFC-Tag an dein Smartphone, um ihn sofort abzuspielen oder zu bearbeiten.</p>
+        <button id="btnScanNfc" class="btn-primary" onclick="startNfcScan()">
+          <span>📡 NFC-Scan starten</span>
+        </button>
+        <div class="scan-manual-trigger" onclick="openManualTagModal()">
+          Oder Tag manuell eingeben / simulieren
+        </div>
+      </div>
+
+      <!-- Quick Section: Zuletzt auf Toniebox erkannt -->
+      <div class="section-header">
+        <h2 class="section-title">Kürzlich aktiv</h2>
+        <span id="activeCountBadge" class="tag-badge">Lade...</span>
+      </div>
+      <div id="recentToniesGrid" class="tonie-grid">
+        <!-- Rendered by app.js -->
+      </div>
+    </section>
+
+    <!-- TAB 2: LIBRARY (MEINE TONIES) -->
+    <section id="tab-library" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title">Meine Tonie-Sammlung</h2>
+        <button class="btn-secondary" onclick="openOnboardingWizard('')">+ Neuer Tag</button>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <input type="text" id="librarySearch" class="form-input" placeholder="🔍 Tonie, Folge oder Hörspiel suchen..." oninput="filterLibrary()">
+      </div>
+      <div id="libraryGrid" class="tonie-grid">
+        <!-- Rendered by app.js -->
+      </div>
+    </section>
+
+    <!-- TAB 3: TONIEBOXEN -->
+    <section id="tab-boxes" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title">Verbundene Tonieboxen</h2>
+      </div>
+      <div id="boxList" style="display: flex; flex-direction: column; gap: 12px;">
+        <!-- Rendered by app.js -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Bottom Navigation -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" onclick="switchTab('scanner', this)">
+      <span class="nav-icon">📡</span>
+      <span>Scanner</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('library', this)">
+      <span class="nav-icon">🧸</span>
+      <span>Meine Tonies</span>
+    </button>
+    <button class="nav-item" onclick="switchTab('boxes', this)">
+      <span class="nav-icon">📻</span>
+      <span>Boxen</span>
+    </button>
+  </nav>
+
+  <!-- MODAL: TONIE DETAIL & PLAYER -->
+  <div id="detailModal" class="modal-overlay" onclick="closeModalOnOverlay(event, 'detailModal')">
+    <div class="modal-content">
+      <div class="modal-drag-handle"></div>
+      
+      <div class="detail-hero">
+        <img id="detailImg" class="detail-img" src="/img_custom.png" alt="Tonie Artwork">
+        <div class="detail-meta">
+          <h3 id="detailTitle" class="detail-title">Tonie Name</h3>
+          <div id="detailSeries" class="detail-series">Serie / Modell</div>
+          <span id="detailTagUid" class="tag-badge">UID: --</span>
+        </div>
+      </div>
+
+      <!-- Mini Audio Player -->
+      <div class="mini-player-box">
+        <div class="audio-controls">
+          <button id="btnPlayPause" class="btn-play-pause" onclick="toggleAudioPlayback()">▶</button>
+          <div class="scrubber-wrap">
+            <div id="scrubberBar" class="scrubber-bar" onclick="seekAudio(event)">
+              <div id="scrubberProgress" class="scrubber-progress"></div>
+            </div>
+            <div class="time-row">
+              <span id="currentTime">0:00</span>
+              <span id="totalDuration">--:--</span>
+            </div>
+          </div>
+        </div>
+        <audio id="audioElement" preload="none"></audio>
+      </div>
+
+      <!-- Trackliste & Kapitel -->
+      <div class="section-header">
+        <h4 class="section-title" style="font-size: 1rem;">Kapitel & Tracks</h4>
+        <span id="trackCount" class="tag-badge">0 Tracks</span>
+      </div>
+      <ul id="detailTrackList" class="track-list">
+        <!-- Rendered by app.js -->
+      </ul>
+
+      <!-- Action Buttons -->
+      <div style="display: flex; gap: 10px; margin-top: 24px;">
+        <button id="btnEditTonie" class="btn-secondary" style="flex: 1;" onclick="editCurrentTonie()">✏️ Bearbeiten</button>
+        <button class="btn-primary" style="flex: 1;" onclick="closeModal('detailModal')">Fertig</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: NEUER TONIE WIZARD (ONBOARDING) -->
+  <div id="wizardModal" class="modal-overlay" onclick="closeModalOnOverlay(event, 'wizardModal')">
+    <div class="modal-content">
+      <div class="modal-drag-handle"></div>
+      <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 6px;">✨ Neuer Tonie erkannt!</h3>
+      <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 20px;">Weise diesem Tag einen Namen, ein Bild und Audioinhalte zu.</p>
+
+      <form id="wizardForm" onsubmit="saveCustomTonie(event)">
+        <div class="wizard-step">
+          <label class="form-label">NFC-Tag UID</label>
+          <input type="text" id="wizardTagUid" class="form-input" required readonly style="background: rgba(255,255,255,0.03); color: var(--accent-secondary); font-family: monospace;">
+        </div>
+
+        <div class="wizard-step">
+          <label class="form-label">Name des Hörspiels / Tonie</label>
+          <input type="text" id="wizardTitle" class="form-input" placeholder="z.B. Die drei ??? - Folge 1" required>
+        </div>
+
+        <div class="wizard-step">
+          <label class="form-label">Serie / Kategorie</label>
+          <input type="text" id="wizardSeries" class="form-input" placeholder="z.B. Gute-Nacht-Geschichten">
+        </div>
+
+        <div class="wizard-step">
+          <label class="form-label">Cover-Icon auswählen</label>
+          <div class="icon-preset-picker">
+            <button type="button" class="icon-preset-btn active" onclick="selectIconPreset('🧸', this)">🧸</button>
+            <button type="button" class="icon-preset-btn" onclick="selectIconPreset('🦁', this)">🦁</button>
+            <button type="button" class="icon-preset-btn" onclick="selectIconPreset('🐰', this)">🐰</button>
+            <button type="button" class="icon-preset-btn" onclick="selectIconPreset('🚀', this)">🚀</button>
+            <button type="button" class="icon-preset-btn" onclick="selectIconPreset('👑', this)">👑</button>
+            <button type="button" class="icon-preset-btn" onclick="selectIconPreset('🦖', this)">🦖</button>
+            <button type="button" class="icon-preset-btn" onclick="selectIconPreset('🎶', this)">🎶</button>
+          </div>
+          <input type="hidden" id="wizardSelectedIcon" value="🧸">
+        </div>
+
+        <div class="wizard-step">
+          <label class="form-label">Audioquelle / Library-Datei</label>
+          <select id="wizardAudioSelect" class="form-input" style="cursor: pointer;">
+            <option value="">Wird geladen...</option>
+          </select>
+          <p style="font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">Audiodateien können in der TeddyCloud Library abgelegt werden.</p>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 24px;">
+          <button type="button" class="btn-secondary" style="flex: 1;" onclick="closeModal('wizardModal')">Abbrechen</button>
+          <button type="submit" class="btn-primary" style="flex: 1;">💾 Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: MANUELLE TAG-EINGABE / SIMULATOR -->
+  <div id="manualTagModal" class="modal-overlay" onclick="closeModalOnOverlay(event, 'manualTagModal')">
+    <div class="modal-content">
+      <div class="modal-drag-handle"></div>
+      <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 8px;">Tag manuell testen</h3>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 18px;">Gib eine NFC-UID ein oder wähle einen kürzlich erkannten Tag aus:</p>
+
+      <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+        <input type="text" id="manualUidInput" class="form-input" placeholder="z.B. E00403501234ABCD" style="font-family: monospace;">
+        <button class="btn-primary" onclick="submitManualUid()">Prüfen</button>
+      </div>
+
+      <div class="section-header">
+        <h4 style="font-size: 0.85rem; color: var(--text-dim);">Bekannte Test-Tags:</h4>
+      </div>
+      <div id="sampleTagList" style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <!-- Filled by app.js -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Message -->
+  <div id="toast" class="toast"></div>
+
+  <script src="/pwa/app.js"></script>
+</body>
+</html>
