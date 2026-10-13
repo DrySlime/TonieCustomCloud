@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#0b0d14">
   <link rel="manifest" href="/pwa/manifest.json">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
-  <link rel="stylesheet" href="/pwa/style.css?v=3">
+  <link rel="stylesheet" href="/pwa/style.css?v=4">
 </head>
 <body>
 
@@ -41,7 +41,7 @@
       <!-- Password Login Form -->
       <form id="loginForm" onsubmit="handleLoginSubmit(event)">
         <div style="position: relative; margin-bottom: 12px;">
-          <input type="password" id="loginPasswordInput" class="form-input" placeholder="Passwort für Ivan eingeben..." required autocomplete="current-password" style="padding-right: 44px;">
+          <input type="password" id="loginPasswordInput" class="form-input" placeholder="Passwort eingeben..." required autocomplete="current-password" style="padding-right: 44px;">
           <button type="button" onclick="togglePasswordVisibility('loginPasswordInput', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem;">👁️</button>
         </div>
         <div id="loginErrorMsg" style="color: #f87171; font-size: 0.82rem; margin-bottom: 12px; display: none;"></div>
@@ -52,10 +52,6 @@
       <button type="button" id="btnBiometricLogin" class="btn-biometric" onclick="loginWithBiometrics()" style="display: none;">
         <span>👆 Mit Fingerabdruck / FaceID anmelden</span>
       </button>
-
-      <div style="margin-top: 18px; font-size: 0.75rem; color: var(--text-dim);">
-        Passwörter: <code>Ivan19</code> • <code>Carla03</code> • <code>Joel09</code>
-      </div>
     </div>
   </div>
 
@@ -181,10 +177,13 @@
         </div>
       </div>
 
-      <!-- Mini Audio Player -->
+      <!-- Mini Audio Player mit Playlist Steuerung -->
       <div class="mini-player-box">
+        <div id="nowPlayingTrackTitle" class="player-now-playing">Wähle einen Track zum Abspielen</div>
         <div class="audio-controls">
+          <button id="btnPrevTrack" class="btn-skip" onclick="playPrevTrack()" title="Vorheriger Track">⏮</button>
           <button id="btnPlayPause" class="btn-play-pause" onclick="toggleAudioPlayback()">▶</button>
+          <button id="btnNextTrack" class="btn-skip" onclick="playNextTrack()" title="Nächster Track">⏭</button>
           <div class="scrubber-wrap">
             <div id="scrubberBar" class="scrubber-bar" onclick="seekAudio(event)">
               <div id="scrubberProgress" class="scrubber-progress"></div>
@@ -215,12 +214,12 @@
     </div>
   </div>
 
-  <!-- MODAL: NEUER TONIE WIZARD (ONBOARDING & CHIP ZUORDNUNG) -->
+  <!-- MODAL: NEUER TONIE WIZARD (ONBOARDING, COVER-UPLOAD & PLAYLIST) -->
   <div id="wizardModal" class="modal-overlay" onclick="closeModalOnOverlay(event, 'wizardModal')">
     <div class="modal-content">
       <div class="modal-drag-handle"></div>
       <h3 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 6px;">✨ Neuer Tonie / Chip</h3>
-      <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 20px;">Weise diesem NFC-Chip einen Namen, Audioinhalte und Besitzer zu.</p>
+      <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 20px;">Weise diesem NFC-Chip einen Namen, Cover, Kapitel und Audioinhalte zu.</p>
 
       <form id="wizardForm" onsubmit="saveCustomTonie(event)">
         <div class="wizard-step">
@@ -251,8 +250,23 @@
           </div>
         </div>
 
+        <!-- Cover-Bild & Icon (Upload + Emojis) -->
         <div class="wizard-step">
-          <label class="form-label">Cover-Icon auswählen</label>
+          <label class="form-label">Cover-Bild & Icon</label>
+          <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 10px;">
+            <div id="wizardCoverPreviewCard" class="cover-preview-card" style="display: none;">
+              <img id="wizardCoverPreviewImg" src="" alt="Cover Preview">
+              <button type="button" class="cover-preview-remove" onclick="removeCustomCoverImage()" title="Bild entfernen">✕</button>
+            </div>
+            <div style="flex-grow: 1;">
+              <input type="file" id="wizardCoverFileInput" accept="image/png, image/jpeg, image/webp" style="display: none;" onchange="handleCoverImageUpload(this)">
+              <button type="button" id="btnUploadCover" class="upload-box-btn" onclick="document.getElementById('wizardCoverFileInput').click()">
+                <span>📷 Eigenes Coverbild hochladen</span>
+              </button>
+            </div>
+          </div>
+
+          <div style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: 6px;">Oder Standard-Emoji wählen:</div>
           <div class="icon-preset-picker">
             <button type="button" class="icon-preset-btn active" onclick="selectIconPreset('🧸', this)">🧸</button>
             <button type="button" class="icon-preset-btn" onclick="selectIconPreset('🦁', this)">🦁</button>
@@ -263,14 +277,35 @@
             <button type="button" class="icon-preset-btn" onclick="selectIconPreset('🎶', this)">🎶</button>
           </div>
           <input type="hidden" id="wizardSelectedIcon" value="🧸">
+          <input type="hidden" id="wizardCustomCoverUrl" value="">
         </div>
 
+        <!-- Audioquelle & Playlist Sektion -->
         <div class="wizard-step">
-          <label class="form-label">Audioquelle / Library-Datei</label>
-          <select id="wizardAudioSelect" class="form-input" style="cursor: pointer;">
-            <option value="">Wird geladen...</option>
-          </select>
-          <p style="font-size: 0.75rem; color: var(--text-dim); margin-top: 4px;">Audiodateien können in der TeddyCloud Library abgelegt werden.</p>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="margin-bottom: 0;">Audioquelle & Playlist</label>
+            <span id="wizardTrackCountBadge" class="tag-badge">0 Tracks</span>
+          </div>
+
+          <!-- Direkt-Upload Button (Ohne TAF-Converter) -->
+          <div style="margin-bottom: 12px;">
+            <input type="file" id="wizardAudioUploadInput" multiple accept="audio/*, .mp3, .ogg, .flac, .wav, .m4a, .aac" style="display: none;" onchange="handleAudioFilesUpload(this)">
+            <button type="button" id="btnUploadAudioFiles" class="upload-box-btn" onclick="document.getElementById('wizardAudioUploadInput').click()">
+              <span>📁 Audiodatei(en) direkt hochladen (Mehrfachauswahl)</span>
+            </button>
+          </div>
+
+          <!-- Playlist / Kapitel Liste -->
+          <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">
+            Kapitel / Songs auf diesem Tag:
+          </div>
+          <div id="wizardPlaylistList" style="max-height: 220px; overflow-y: auto; margin-bottom: 10px;">
+            <!-- Dynamically populated rows -->
+          </div>
+
+          <button type="button" class="btn-secondary" style="font-size: 0.78rem; padding: 6px 12px; width: 100%; border-radius: var(--radius-sm);" onclick="addPlaylistRow('', '')">
+            + Weiteren Track / Kapitel manuell hinzufügen
+          </button>
         </div>
 
         <div style="display: flex; gap: 10px; margin-top: 24px;">
@@ -305,6 +340,6 @@
   <!-- Toast Message -->
   <div id="toast" class="toast"></div>
 
-  <script src="/pwa/app.js?v=3"></script>
+  <script src="/pwa/app.js?v=4"></script>
 </body>
 </html>

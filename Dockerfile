@@ -22,5 +22,8 @@ COPY dev-sandbox/certs/server/ /teddycloud/certs/server/
 COPY contrib/data/www/pwa/ /teddycloud/data/www/pwa/
 COPY contrib/data/www/index.html /teddycloud/data/www/index.html
 
+# Symlink audio library for direct web streaming
+RUN ln -sf /teddycloud/data/library /teddycloud/data/www/audio
+
 # Overwrite default web frontend with our custom build
 COPY --from=web-builder /app/dist/ /teddycloud/data/www/web/

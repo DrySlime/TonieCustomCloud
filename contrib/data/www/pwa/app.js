@@ -24,6 +24,8 @@ let currentAuthKey = null;
 let customToniesCache = [];
 let libraryFilesCache = [];
 let currentTonieDetail = null;
+let currentPlaylist = [];
+let currentTrackIndex = 0;
 let isNfcScanning = false;
 let nfcReaderInstance = null;
 let selectedLoginKey = 'Ivan19';
@@ -39,9 +41,9 @@ document.addEventListener('DOMContentLoaded', () => {
 // 1. Service Worker Registration & Update Trigger
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/pwa/sw.js?v=3')
+    navigator.serviceWorker.register('/pwa/sw.js?v=4')
       .then((reg) => {
-        console.log('[PWA] Service Worker v3 registriert:', reg.scope);
+        console.log('[PWA] Service Worker registriert:', reg.scope);
         reg.update();
       })
       .catch((err) => console.warn('[PWA] Service Worker Fehler:', err));
@@ -82,8 +84,6 @@ function showLoginScreen() {
   const screen = document.getElementById('loginScreen');
   screen.classList.remove('hidden');
   selectUserProfile('Ivan19', 'Ivan', 'Ivans Toniebox');
-
-  // Prüfen ob Biometrie (Fingerabdruck) hinterlegt ist
   checkBiometricAvailability();
 }
 
@@ -143,7 +143,6 @@ function applyUserSession(key) {
   if (name) name.innerText = user.name;
   if (box) box.innerText = `(${user.box})`;
 
-  // Im Wizard vorauswählen
   const ownerSelect = document.getElementById('wizardOwnerSelect');
   if (ownerSelect) ownerSelect.value = user.name;
 }
@@ -153,7 +152,6 @@ function handleAccountMenu() {
   if (!user) return;
 
   const isBioEnrolled = localStorage.getItem('tonie_bio_enrolled') === 'true';
-  const bioText = isBioEnrolled ? '✓ Fingerabdruck aktiv' : '👆 Fingerabdruck einrichten';
 
   const choice = confirm(
     `Angemeldet als: ${user.avatar} ${user.name}\n` +
@@ -182,11 +180,7 @@ async function checkBiometricAvailability() {
   try {
     const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
     const enrolled = localStorage.getItem('tonie_bio_enrolled') === 'true';
-    if (available && enrolled) {
-      btn.style.display = 'flex';
-    } else {
-      btn.style.display = 'none';
-    }
+    btn.style.display = (available && enrolled) ? 'flex' : 'none';
   } catch (e) {
     btn.style.display = 'none';
   }
@@ -225,7 +219,7 @@ async function registerBiometrics() {
     if (credential) {
       localStorage.setItem('tonie_bio_enrolled', 'true');
       localStorage.setItem('tonie_bio_key', currentAuthKey);
-      showToast('🎉 Fingerabdruck erfolgreich für diesen Account eingerichtet!', 'success');
+      showToast('🎉 Fingerabdruck erfolgreich eingerichtet!', 'success');
     }
   } catch (err) {
     console.warn('[WebAuthn] Registrierung abgebrochen/Fehler:', err);
@@ -276,16 +270,15 @@ function togglePasswordVisibility(inputId, btn) {
   }
 }
 
-// 4. App Start & Data Loading (ECHTE Tonies only)
+// 4. App Start & Data Loading
 async function startApp() {
   checkServerHealth();
   await loadRealTonies();
-  loadLibraryFiles();
+  await loadLibraryFiles();
   loadTonieboxes();
 }
 
 async function checkServerHealth() {
-  const badge = document.getElementById('userProfileBadge');
   try {
     const res = await fetch('/api/stats');
     if (!res.ok) throw new Error();
@@ -296,7 +289,6 @@ async function checkServerHealth() {
 
 async function loadRealTonies() {
   try {
-    // 1. Echte Custom Tonies aus der DB
     const res = await fetch('/api/toniesCustomJson');
     if (res.ok) {
       const data = await res.json();
@@ -306,7 +298,6 @@ async function loadRealTonies() {
     console.warn('Could not load toniesCustomJson:', e);
   }
 
-  // Filter & Render
   renderLibrary();
   renderRecent();
   populateSampleTags();
@@ -331,13 +322,9 @@ function renderLibrary() {
   const currentUser = USERS[currentAuthKey]?.name || 'Ivan';
   const currentHousehold = USERS[currentAuthKey]?.household || 'ivan';
 
-  // Trennung:
-  // Meine Tonies: owner == currentUser ODER household == currentHousehold
-  // Geteilt: owner != currentUser
   const myTonies = customToniesCache.filter(t => (t.owner === currentUser) || (t.household === currentHousehold));
   const sharedTonies = customToniesCache.filter(t => t.owner && t.owner !== currentUser && t.household !== currentHousehold);
 
-  // Update Counters
   const countMy = document.getElementById('badgeCountMy');
   const countShared = document.getElementById('badgeCountShared');
   const countAll = document.getElementById('badgeCountAll');
@@ -352,7 +339,6 @@ function renderLibrary() {
     listToRender = sharedTonies;
   }
 
-  // Suchfilter
   if (search) {
     listToRender = listToRender.filter(t =>
       (t.title && t.title.toLowerCase().includes(search)) ||
@@ -388,9 +374,6 @@ function renderLibrary() {
 function renderRecent() {
   const grid = document.getElementById('recentToniesGrid');
   const badge = document.getElementById('activeCountBadge');
-  const currentUser = USERS[currentAuthKey]?.name || 'Ivan';
-
-  // Bevorzugt kürzliche Tonies des Nutzers oder alle
   const list = customToniesCache.slice(0, 6);
   badge.innerText = `${list.length} bereit`;
 
@@ -417,6 +400,7 @@ function createTonieCardHtml(item) {
   const owner = item.owner || 'Gemeinsam';
   const ownerAvatar = owner === 'Ivan' ? '👦' : owner === 'Carla' ? '👧' : owner === 'Joel' ? '🧒' : '🌟';
   const ownerClass = owner.toLowerCase();
+  const trackCount = Array.isArray(item.tracks) ? item.tracks.length : (item.audio_file ? 1 : 0);
 
   return `
     <div class="tonie-card" onclick="openDetailModal(${JSON.stringify(item).replace(/"/g, '&quot;')}, '${uid}')">
@@ -427,6 +411,7 @@ function createTonieCardHtml(item) {
       <div class="tonie-card-subtitle">${series}</div>
       <div style="display: flex; gap: 4px; justify-content: center; align-items: center; flex-wrap: wrap;">
         <span class="owner-badge ${ownerClass}">${ownerAvatar} ${owner}</span>
+        ${trackCount > 1 ? `<span class="tag-badge">🎵 ${trackCount} Tracks</span>` : ''}
         ${uid ? `<span class="tag-badge">${uid.substring(0, 8)}...</span>` : ''}
       </div>
     </div>
@@ -481,10 +466,8 @@ async function resolveTag(tagUid) {
   if (!tagUid) return;
   const cleanUid = tagUid.trim().toUpperCase();
 
-  // 1. Suche in Custom Tonies
   let found = customToniesCache.find(t => (t.nfc_uid || t.ruid || t.uid || '').toUpperCase() === cleanUid);
 
-  // 2. Fallback: TeddyCloud API Abfrage
   if (!found) {
     try {
       const res = await fetch(`/api/getTagInfo?tag=${encodeURIComponent(cleanUid)}`);
@@ -500,35 +483,225 @@ async function resolveTag(tagUid) {
   if (found) {
     openDetailModal(found, cleanUid);
   } else {
-    // Neuer Tag -> Wizard für aktuellen Account öffnen!
     openOnboardingWizard(cleanUid);
   }
 }
 
-// 7. Onboarding & Speichern mit Owner/Box Zuordnung
-function openOnboardingWizard(tagUid, initialTitle = '', initialSeries = '', initialIcon = '🧸', initialAudio = '', initialOwner = '') {
+// 7. Cover-Bild Upload (Eigenes Bild ohne Icon)
+async function handleCoverImageUpload(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+
+  const btn = document.getElementById('btnUploadCover');
+  btn.classList.add('uploading');
+  btn.innerHTML = '<span>⏳ Lade Bild hoch...</span>';
+
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+
+  try {
+    const res = await fetch('/api/fileUpload?special=custom_img&path=/', {
+      method: 'POST',
+      headers: {
+        'X-Tonie-Key': currentAuthKey
+      },
+      body: formData
+    });
+
+    if (res.ok) {
+      const imgUrl = `/custom_img/${encodeURIComponent(file.name)}`;
+      document.getElementById('wizardCustomCoverUrl').value = imgUrl;
+
+      // Preview anzeigen
+      const card = document.getElementById('wizardCoverPreviewCard');
+      const img = document.getElementById('wizardCoverPreviewImg');
+      img.src = imgUrl;
+      card.style.display = 'block';
+
+      // Emoji active status entfernen
+      document.querySelectorAll('.icon-preset-btn').forEach(b => b.classList.remove('active'));
+
+      showToast('📸 Coverbild erfolgreich hochgeladen!', 'success');
+    } else {
+      throw new Error(`Status ${res.status}`);
+    }
+  } catch (err) {
+    console.error('Cover upload failed:', err);
+    showToast('Fehler beim Hochladen des Coverbilds.', 'error');
+  } finally {
+    btn.classList.remove('uploading');
+    btn.innerHTML = '<span>📷 Eigenes Coverbild hochladen</span>';
+    input.value = '';
+  }
+}
+
+function removeCustomCoverImage() {
+  document.getElementById('wizardCustomCoverUrl').value = '';
+  document.getElementById('wizardCoverPreviewCard').style.display = 'none';
+  // Standard-Emoji wieder aktivieren
+  selectIconPreset('🧸', document.querySelector('.icon-preset-btn'));
+}
+
+// 8. Direkt-Upload von Audiodateien in die Library (Ohne TAF-Converter!)
+async function handleAudioFilesUpload(input) {
+  const files = Array.from(input.files || []);
+  if (files.length === 0) return;
+
+  const btn = document.getElementById('btnUploadAudioFiles');
+  btn.classList.add('uploading');
+  btn.innerHTML = `<span>⏳ Lade ${files.length} Datei(en) in Library...</span>`;
+
+  let uploadedCount = 0;
+
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+
+    try {
+      const res = await fetch('/api/fileUpload?special=library&path=/', {
+        method: 'POST',
+        headers: {
+          'X-Tonie-Key': currentAuthKey
+        },
+        body: formData
+      });
+
+      if (res.ok) {
+        uploadedCount++;
+        // Automatisch als Track in die Playlist aufnehmen!
+        const trackTitle = file.name.replace(/\.[^/.]+$/, '').replace(/^[\d\s-_]+/, '');
+        addPlaylistRow(trackTitle || file.name, file.name);
+      }
+    } catch (err) {
+      console.warn('Upload error for', file.name, err);
+    }
+  }
+
+  // Library-Cache neu laden
+  await loadLibraryFiles();
+
+  btn.classList.remove('uploading');
+  btn.innerHTML = '<span>📁 Audiodateien direkt hochladen (Mehrfachauswahl)</span>';
+  input.value = '';
+
+  if (uploadedCount > 0) {
+    showToast(`🎉 ${uploadedCount} Datei(en) direkt in Library geladen & als Tracks eingetragen!`, 'success');
+  } else {
+    showToast('Upload fehlgeschlagen. Bitte erneut versuchen.', 'error');
+  }
+}
+
+// 9. Playlist & Kapitel Management im Wizard
+function addPlaylistRow(title = '', selectedFile = '') {
+  const list = document.getElementById('wizardPlaylistList');
+  const count = list.children.length + 1;
+
+  const row = document.createElement('div');
+  row.className = 'playlist-track-row';
+  row.dataset.trackIndex = count;
+
+  let fileOptions = '<option value="">-- Datei wählen --</option>';
+  libraryFilesCache.forEach(file => {
+    const name = typeof file === 'string' ? file : (file.name || file.path || '');
+    const isSel = (name === selectedFile) ? 'selected' : '';
+    fileOptions += `<option value="${name}" ${isSel}>${name}</option>`;
+  });
+
+  row.innerHTML = `
+    <span class="playlist-track-num">${count}</span>
+    <input type="text" class="form-input track-title-input" placeholder="Kapitel / Song ${count}" value="${title}" style="padding: 6px 10px; font-size: 0.85rem;">
+    <select class="form-input track-file-select" style="padding: 6px 8px; font-size: 0.82rem; cursor: pointer;">
+      ${fileOptions}
+    </select>
+    <button type="button" class="btn-track-delete" onclick="removePlaylistRow(this)" title="Track löschen">🗑️</button>
+  `;
+
+  list.appendChild(row);
+  updateWizardTrackCount();
+}
+
+function removePlaylistRow(btn) {
+  const row = btn.closest('.playlist-track-row');
+  row.remove();
+  // Nummern aktualisieren
+  const list = document.getElementById('wizardPlaylistList');
+  Array.from(list.children).forEach((r, idx) => {
+    r.querySelector('.playlist-track-num').innerText = idx + 1;
+    r.dataset.trackIndex = idx + 1;
+  });
+  updateWizardTrackCount();
+}
+
+function updateWizardTrackCount() {
+  const count = document.getElementById('wizardPlaylistList').children.length;
+  const badge = document.getElementById('wizardTrackCountBadge');
+  if (badge) badge.innerText = `${count} Track${count === 1 ? '' : 's'}`;
+}
+
+function getWizardPlaylistData() {
+  const rows = Array.from(document.getElementById('wizardPlaylistList').children);
+  return rows.map((r, idx) => {
+    const titleInput = r.querySelector('.track-title-input');
+    const fileSelect = r.querySelector('.track-file-select');
+    return {
+      number: idx + 1,
+      title: titleInput?.value.trim() || `Kapitel ${idx + 1}`,
+      file: fileSelect?.value || ''
+    };
+  });
+}
+
+// 10. Onboarding Wizard öffnen & befüllen
+function openOnboardingWizard(tagUid, initialTitle = '', initialSeries = '', initialIcon = '🧸', initialAudio = '', initialOwner = '', existingTracks = null, existingPicture = '') {
   const modal = document.getElementById('wizardModal');
   const currentUser = USERS[currentAuthKey]?.name || 'Ivan';
 
   document.getElementById('wizardTagUid').value = tagUid || 'TAG_' + Math.random().toString(36).substring(2, 10).toUpperCase();
   document.getElementById('wizardTitle').value = initialTitle;
   document.getElementById('wizardSeries').value = initialSeries;
-  document.getElementById('wizardSelectedIcon').value = initialIcon;
   document.getElementById('wizardOwnerSelect').value = initialOwner || currentUser;
 
-  if (initialAudio) {
-    document.getElementById('wizardAudioSelect').value = initialAudio;
+  // Cover Image vs Emoji
+  const customCoverUrl = document.getElementById('wizardCustomCoverUrl');
+  const previewCard = document.getElementById('wizardCoverPreviewCard');
+  const previewImg = document.getElementById('wizardCoverPreviewImg');
+
+  if (existingPicture && existingPicture.includes('/custom_img/')) {
+    customCoverUrl.value = existingPicture;
+    previewImg.src = existingPicture;
+    previewCard.style.display = 'block';
+    document.querySelectorAll('.icon-preset-btn').forEach(b => b.classList.remove('active'));
+  } else {
+    removeCustomCoverImage();
+    selectIconPreset(initialIcon || '🧸', document.querySelector('.icon-preset-btn'));
   }
-  document.querySelectorAll('.icon-preset-btn').forEach(b => {
-    b.classList.toggle('active', b.innerText.trim() === initialIcon);
-  });
+
+  // Playlist befüllen
+  const playlistContainer = document.getElementById('wizardPlaylistList');
+  playlistContainer.innerHTML = '';
+
+  if (Array.isArray(existingTracks) && existingTracks.length > 0) {
+    existingTracks.forEach(tr => {
+      const title = typeof tr === 'string' ? tr : (tr.title || '');
+      const file = typeof tr === 'object' ? (tr.file || '') : '';
+      addPlaylistRow(title, file);
+    });
+  } else if (initialAudio) {
+    addPlaylistRow(initialTitle || 'Hörspiel', initialAudio);
+  } else {
+    // Standardmäßig 1 leere Zeile anbieten
+    addPlaylistRow('', '');
+  }
+
   modal.classList.add('open');
 }
 
 function selectIconPreset(icon, btn) {
   document.querySelectorAll('.icon-preset-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
   document.getElementById('wizardSelectedIcon').value = icon;
+  document.getElementById('wizardCustomCoverUrl').value = '';
+  document.getElementById('wizardCoverPreviewCard').style.display = 'none';
 }
 
 async function saveCustomTonie(e) {
@@ -542,10 +715,14 @@ async function saveCustomTonie(e) {
   const title = document.getElementById('wizardTitle').value.trim();
   const series = document.getElementById('wizardSeries').value.trim();
   const icon = document.getElementById('wizardSelectedIcon').value;
-  const audioFile = document.getElementById('wizardAudioSelect').value;
+  const customCover = document.getElementById('wizardCustomCoverUrl').value;
   const owner = document.getElementById('wizardOwnerSelect').value || USERS[currentAuthKey].name;
   const box = owner === 'Ivan' ? 'Ivans Toniebox' : 'Schwesters Toniebox';
   const household = owner === 'Ivan' ? 'ivan' : 'schwester';
+
+  // Playlist Daten
+  const tracks = getWizardPlaylistData();
+  const primaryAudioFile = tracks.find(t => t.file)?.file || null;
 
   const payload = {
     model: 'CUSTOM_' + uid,
@@ -557,9 +734,10 @@ async function saveCustomTonie(e) {
     box: box,
     household: household,
     shared: true,
-    picture: '/img_custom.png',
+    picture: customCover || '/img_custom.png',
     icon: icon,
-    audio_file: audioFile || null
+    audio_file: primaryAudioFile,
+    tracks: tracks
   };
 
   try {
@@ -579,9 +757,8 @@ async function saveCustomTonie(e) {
     }
 
     if (res.ok || res.status === 200) {
-      showToast(`🎉 Tonie gespeichert für ${owner} (Freigegeben für beide Boxen)!`, 'success');
+      showToast(`🎉 Tonie & Playlist gespeichert für ${owner}!`, 'success');
       
-      // Update Cache
       const existingIdx = customToniesCache.findIndex(t => t.model === payload.model || t.nfc_uid === payload.nfc_uid);
       if (existingIdx >= 0) {
         customToniesCache[existingIdx] = payload;
@@ -606,7 +783,7 @@ async function saveCustomTonie(e) {
   }
 }
 
-// 8. Tonie Details, Bearbeiten & Audio Player
+// 11. Tonie Detail Modal & Playlist Audio Player
 function openDetailModal(item, uid) {
   currentTonieDetail = item;
   const modal = document.getElementById('detailModal');
@@ -628,31 +805,84 @@ function openDetailModal(item, uid) {
   ownerBadge.innerText = `${ownerAvatar} ${owner} (${item.box || 'Beide Boxen'})`;
   ownerBadge.className = `owner-badge ${owner.toLowerCase()}`;
 
-  // Kapitel / Tracks
-  const tracks = item.tracks || item.chapters || [];
-  trackCount.innerText = `${tracks.length} Tracks`;
-  
-  if (tracks.length > 0) {
-    trackList.innerHTML = tracks.map((tr, idx) => `
-      <li class="track-item">
-        <span class="track-number">${idx + 1}</span>
-        <span class="track-title">${typeof tr === 'string' ? tr : (tr.title || `Kapitel ${idx + 1}`)}</span>
-        <span class="track-duration">${tr.duration ? formatTime(tr.duration) : ''}</span>
-      </li>
-    `).join('');
-  } else {
-    trackList.innerHTML = '<li class="track-item" style="color: var(--text-dim);">1 Gesamtfolge (Vollständiges Hörspiel)</li>';
+  // Playlist aus Tonie-Daten laden
+  currentPlaylist = Array.isArray(item.tracks) ? item.tracks : [];
+  if (currentPlaylist.length === 0 && item.audio_file) {
+    currentPlaylist = [{ number: 1, title: item.title || 'Hauptfolge', file: item.audio_file }];
   }
 
-  // Audio URL
-  const audio = document.getElementById('audioElement');
-  if (item.audio_url || item.url) {
-    audio.src = item.audio_url || item.url;
+  trackCount.innerText = `${currentPlaylist.length} Tracks`;
+
+  if (currentPlaylist.length > 0) {
+    trackList.innerHTML = currentPlaylist.map((tr, idx) => `
+      <li class="track-item ${idx === 0 ? 'active-track' : ''}" onclick="selectTrack(${idx})" id="trackItem_${idx}">
+        <span class="track-number">${idx + 1}</span>
+        <span class="track-title">${typeof tr === 'string' ? tr : (tr.title || `Kapitel ${idx + 1}`)}</span>
+        <span class="track-duration">${tr.file ? '🎵' : ''}</span>
+      </li>
+    `).join('');
+    // Ersten Track vorbereiten
+    selectTrack(0, false);
   } else {
+    trackList.innerHTML = '<li class="track-item" style="color: var(--text-dim);">Noch keine Tracks oder Audiodateien hinterlegt.</li>';
+    document.getElementById('nowPlayingTrackTitle').innerText = 'Keine Audiodatei hinterlegt';
+    const audio = document.getElementById('audioElement');
     audio.src = '';
   }
 
   modal.classList.add('open');
+}
+
+function selectTrack(index, autoPlay = true) {
+  if (!currentPlaylist || currentPlaylist.length === 0) return;
+  if (index < 0 || index >= currentPlaylist.length) return;
+
+  currentTrackIndex = index;
+  const track = currentPlaylist[index];
+  const audio = document.getElementById('audioElement');
+  const nowPlaying = document.getElementById('nowPlayingTrackTitle');
+  const btn = document.getElementById('btnPlayPause');
+
+  const title = typeof track === 'string' ? track : (track.title || `Kapitel ${index + 1}`);
+  const fileName = typeof track === 'object' ? (track.file || '') : '';
+
+  nowPlaying.innerText = `Track ${index + 1} von ${currentPlaylist.length}: ${title}`;
+
+  // Aktiven Track visuell hervorheben
+  document.querySelectorAll('.track-item').forEach((item, idx) => {
+    item.classList.toggle('active-track', idx === index);
+  });
+
+  // Audio Quelle: Falls file angegeben -> /audio/<fileName>, sonst fallback
+  if (fileName) {
+    audio.src = `/audio/${encodeURIComponent(fileName)}`;
+  } else if (currentTonieDetail?.audio_url) {
+    audio.src = currentTonieDetail.audio_url;
+  } else {
+    audio.src = '';
+  }
+
+  if (autoPlay && audio.src) {
+    audio.play().then(() => {
+      btn.innerText = '⏸';
+    }).catch(() => {
+      btn.innerText = '▶';
+    });
+  } else {
+    btn.innerText = '▶';
+  }
+}
+
+function playNextTrack() {
+  if (currentPlaylist.length === 0) return;
+  const nextIdx = (currentTrackIndex + 1) % currentPlaylist.length;
+  selectTrack(nextIdx, true);
+}
+
+function playPrevTrack() {
+  if (currentPlaylist.length === 0) return;
+  const prevIdx = (currentTrackIndex - 1 + currentPlaylist.length) % currentPlaylist.length;
+  selectTrack(prevIdx, true);
 }
 
 function editCurrentTonie() {
@@ -664,16 +894,17 @@ function editCurrentTonie() {
     currentTonieDetail.series || '',
     currentTonieDetail.icon || '🧸',
     currentTonieDetail.audio_file || '',
-    currentTonieDetail.owner || ''
+    currentTonieDetail.owner || '',
+    currentTonieDetail.tracks || null,
+    currentTonieDetail.picture || ''
   );
 }
 
-// 9. Tonieboxen Übersicht
+// 12. Tonieboxen & Library
 async function loadTonieboxes() {
   const boxList = document.getElementById('boxList');
   if (!boxList) return;
 
-  // Realistische Box-Darstellung beider Haushalte (Ivan & Schwester)
   boxList.innerHTML = `
     <div class="tonie-card" style="text-align: left; display: flex; align-items: center; justify-content: space-between; border-left: 4px solid #6366f1;">
       <div>
@@ -696,31 +927,24 @@ async function loadTonieboxes() {
 }
 
 async function loadLibraryFiles() {
-  const select = document.getElementById('wizardAudioSelect');
-  if (!select) return;
   try {
-    const res = await fetch('/api/fileIndexV2');
+    const res = await fetch('/api/fileIndexV2?special=library');
     if (res.ok) {
       const data = await res.json();
       libraryFilesCache = data.files || (Array.isArray(data) ? data : []);
-      
-      select.innerHTML = '<option value="">-- Audiodatei wählen (Optional) --</option>';
-      libraryFilesCache.forEach(file => {
-        const name = typeof file === 'string' ? file : (file.name || file.path || 'Audiodatei');
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.innerText = name;
-        select.appendChild(opt);
+      // Filtere Ordner heraus
+      libraryFilesCache = libraryFilesCache.filter(f => {
+        const isDir = typeof f === 'object' ? f.isDir : false;
+        const name = typeof f === 'string' ? f : (f.name || '');
+        return !isDir && name !== '..' && name !== '.';
       });
-    } else {
-      select.innerHTML = '<option value="">Keine Dateien in Library</option>';
     }
   } catch (e) {
-    select.innerHTML = '<option value="">Library nicht verfügbar</option>';
+    console.warn('Could not load library files:', e);
   }
 }
 
-// 10. Manual Tag Simulator
+// 13. Manual Tag Simulator
 function openManualTagModal() {
   document.getElementById('manualTagModal').classList.add('open');
 }
@@ -748,7 +972,7 @@ function populateSampleTags() {
   `).join('');
 }
 
-// 11. Audio Player Engine
+// 14. Audio Player Engine
 function setupAudioPlayer() {
   const audio = document.getElementById('audioElement');
   const progress = document.getElementById('scrubberProgress');
@@ -769,9 +993,14 @@ function setupAudioPlayer() {
     durTime.innerText = formatTime(audio.duration);
   };
 
+  // Automatisch nächsten Track spielen, wenn Track vorbei ist!
   audio.onended = () => {
-    btn.innerText = '▶';
-    progress.style.width = '0%';
+    if (currentPlaylist.length > 0 && currentTrackIndex < currentPlaylist.length - 1) {
+      playNextTrack();
+    } else {
+      btn.innerText = '▶';
+      progress.style.width = '0%';
+    }
   };
 }
 
@@ -779,10 +1008,14 @@ function toggleAudioPlayback() {
   const audio = document.getElementById('audioElement');
   const btn = document.getElementById('btnPlayPause');
   if (audio.paused) {
+    if (!audio.src) {
+      showToast('Keine Audiodatei für diesen Track hinterlegt.', 'error');
+      return;
+    }
     audio.play().then(() => {
       btn.innerText = '⏸';
     }).catch(() => {
-      showToast('Keine Live-Audiodatei für diesen Tonie hinterlegt.', 'error');
+      showToast('Audiodatei konnte nicht abgespielt werden.', 'error');
     });
   } else {
     audio.pause();
@@ -805,7 +1038,7 @@ function formatTime(secs) {
   return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
-// 12. Modal Controls & Tabs
+// 15. Modal Controls & Tabs
 function switchTab(tabName, btn) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
